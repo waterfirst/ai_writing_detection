@@ -11,16 +11,8 @@ import os
 from bs4 import BeautifulSoup
 import matplotlib.pyplot as plt
 
-# Download NLTK data
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    # 다운로드 실패 시 대체 토크나이저 사용
-    def simple_sent_tokenize(text):
-        return text.split('.')
-    
-    # NLTK의 sent_tokenize 함수를 간단한 함수로 모킹
-    nltk.tokenize.sent_tokenize = simple_sent_tokenize
+
+nltk.tokenize.sent_tokenize = simple_sent_tokenize
 
 st.set_page_config(
     page_title="AI Text Detector",
