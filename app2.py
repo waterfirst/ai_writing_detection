@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-import nltk
-from nltk.tokenize import sent_tokenize, word_tokenize
 import PyPDF2
 import docx
 import io
@@ -11,20 +9,26 @@ import os
 from bs4 import BeautifulSoup
 import matplotlib.pyplot as plt
 
+# NLTK 없이 간단한 토크나이저 구현
+def simple_sentence_tokenize(text):
+    # 마침표, 느낌표, 물음표로 문장 분리
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    # 빈 문장 제거
+    return [s.strip() for s in sentences if s.strip()]
 
-# NLTK 데이터 다운로드를 좀 더 확실하게 처리
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt', quiet=True)
-    # 추가 안전 장치 - 명시적으로 import
-    from nltk.tokenize import punkt
+def simple_word_tokenize(text):
+    # 단어 분리 (알파벳, 숫자, 한글만 단어로 인식)
+    words = re.findall(r'[a-zA-Z0-9가-힣]+', text.lower())
+    return words
 
 st.set_page_config(
     page_title="AI Text Detector",
     page_icon="🤖",
     layout="wide",
 )
+
+
+
 
 # App title and description
 st.title("AI Text Detector")
@@ -100,7 +104,7 @@ def extract_text_from_file(uploaded_file):
  # Sentence variety analysis
 def analyze_sentence_variety(text):
     try:
-        sentences = sent_tokenize(text)
+        sentences = simple_sentence_tokenize(text)
         
         if not sentences:
             return 0.0, {}
@@ -150,52 +154,61 @@ def analyze_sentence_variety(text):
 
 # Lexical diversity analysis
 def analyze_lexical_diversity(text):
-    words = word_tokenize(text.lower())
+    try:
+        # NLTK 대신 simple_word_tokenize 사용
+        words = simple_word_tokenize(text.lower())
+        
+        if not words:
+            return 0.0, {}
     
-    if not words:
-        return 0.0, {}
-    
-    # Basic statistics
-    total_words = len(words)
-    unique_words = len(set(words))
-    
-    # Type-Token Ratio (TTR)
-    ttr = unique_words / total_words
-    
-    # Rare word ratio
-    rare_words = sum(1 for word in set(words) if words.count(word) == 1)
-    rare_word_ratio = rare_words / unique_words if unique_words > 0 else 0
-    
-    # Verb/adjective diversity - support for both Korean and English
-    # Korean patterns
-    korean_verb_adj_pattern = r'\w+다|\w+는|\w+게|\w+고|\w+며'
-    # English patterns
-    english_verb_adj_pattern = r'\w+ed|\w+ing|\w+ly|\w+ful|\w+ive|\w+ous|\w+ent|\w+able'
-    
-    # Try both patterns
-    korean_verbs_adjs = re.findall(korean_verb_adj_pattern, text)
-    english_verbs_adjs = re.findall(english_verb_adj_pattern, text)
-    
-    # Combine results
-    potential_verbs_adjs = korean_verbs_adjs + english_verbs_adjs
-    verb_adj_unique = len(set(potential_verbs_adjs))
-    verb_adj_ratio = verb_adj_unique / len(potential_verbs_adjs) if potential_verbs_adjs else 0
-    
-    # Composite score (higher = less likely to be AI)
-    diversity_score = ttr * 0.5 + rare_word_ratio * 0.3 + verb_adj_ratio * 0.2
-    
-    # Normalize (0-1 range)
-    diversity_score = max(0, min(1, diversity_score))
-    
-    details = {
-        "Total Words": total_words,
-        "Unique Words": unique_words,
-        "Type-Token Ratio (TTR)": round(ttr, 3),
-        "Rare Word Ratio": round(rare_word_ratio, 3),
-        "Verb/Adjective Diversity": round(verb_adj_ratio, 3)
-    }
-    
-    return diversity_score, details
+        
+        # Basic statistics
+        total_words = len(words)
+        unique_words = len(set(words))
+        
+        # Type-Token Ratio (TTR)
+        ttr = unique_words / total_words
+        
+        # Rare word ratio
+        rare_words = sum(1 for word in set(words) if words.count(word) == 1)
+        rare_word_ratio = rare_words / unique_words if unique_words > 0 else 0
+        
+        # Verb/adjective diversity - support for both Korean and English
+        # Korean patterns
+        korean_verb_adj_pattern = r'\w+다|\w+는|\w+게|\w+고|\w+며'
+        # English patterns
+        english_verb_adj_pattern = r'\w+ed|\w+ing|\w+ly|\w+ful|\w+ive|\w+ous|\w+ent|\w+able'
+        
+        # Try both patterns
+        korean_verbs_adjs = re.findall(korean_verb_adj_pattern, text)
+        english_verbs_adjs = re.findall(english_verb_adj_pattern, text)
+        
+        # Combine results
+        potential_verbs_adjs = korean_verbs_adjs + english_verbs_adjs
+        verb_adj_unique = len(set(potential_verbs_adjs))
+        verb_adj_ratio = verb_adj_unique / len(potential_verbs_adjs) if potential_verbs_adjs else 0
+        
+        # Composite score (higher = less likely to be AI)
+        diversity_score = ttr * 0.5 + rare_word_ratio * 0.3 + verb_adj_ratio * 0.2
+        
+        # Normalize (0-1 range)
+        diversity_score = max(0, min(1, diversity_score))
+        
+        details = {
+            "Total Words": total_words,
+            "Unique Words": unique_words,
+            "Type-Token Ratio (TTR)": round(ttr, 3),
+            "Rare Word Ratio": round(rare_word_ratio, 3),
+            "Verb/Adjective Diversity": round(verb_adj_ratio, 3)
+        }
+        
+        return diversity_score, details
+
+    except Exception as e:
+        st.error(f"Error in lexical analysis: {str(e)}")
+        return 0.5, {"Error": "Analysis failed"}
+     
+     
 
 # Personal expression analysis - significantly improved
 def analyze_personal_references(text):
@@ -282,8 +295,8 @@ def analyze_personal_references(text):
 
 # Repetition pattern analysis
 def analyze_repetition_patterns(text):
-    sentences = sent_tokenize(text)
-    words = word_tokenize(text.lower())
+    sentences = simple_sentence_tokenize(text) # Use the defined simple tokenizer
+    words = simple_word_tokenize(text.lower()) # Use the defined simple tokenizer
     
     if not sentences or not words:
         return 0.0, {}
@@ -495,7 +508,7 @@ def detect_ai_mimicry(text):
     
     # 5. Analyze consistency of writing style
     # Extract sentence structures to check for overly consistent patterns
-    sentences = sent_tokenize(text)
+    sentences = simple_sentence_tokenize(text) # Use the defined simple tokenizer
     sentence_structures = []
     for s in sentences:
         # Simplify to detect structure patterns (starts with subject, verb positions, etc.)
