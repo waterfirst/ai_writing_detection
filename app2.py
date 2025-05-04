@@ -11,11 +11,14 @@ import os
 from bs4 import BeautifulSoup
 import matplotlib.pyplot as plt
 
-# Download NLTK data
+
+# NLTK 데이터 다운로드를 좀 더 확실하게 처리
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
-    nltk.download('punkt')
+    nltk.download('punkt', quiet=True)
+    # 추가 안전 장치 - 명시적으로 import
+    from nltk.tokenize import punkt
 
 st.set_page_config(
     page_title="AI Text Detector",
@@ -96,47 +99,54 @@ def extract_text_from_file(uploaded_file):
  
  # Sentence variety analysis
 def analyze_sentence_variety(text):
-    sentences = sent_tokenize(text)
+    try:
+        sentences = sent_tokenize(text)
+        
+        if not sentences:
+            return 0.0, {}
     
-    if not sentences:
-        return 0.0, {}
+        
+        # Analyze sentence length and complexity
+        sentence_lengths = [len(s.split()) for s in sentences]
+        avg_length = sum(sentence_lengths) / len(sentence_lengths)
+        std_dev = np.std(sentence_lengths)
+        
+        # Sentence starter diversity
+        sentence_starters = {}
+        for s in sentences:
+            words = s.split()
+            if words:
+                starter = words[0].lower()
+                sentence_starters[starter] = sentence_starters.get(starter, 0) + 1
+        
+        starter_diversity = len(sentence_starters) / len(sentences)
+        
+        # Punctuation diversity
+        punctuation_types = sum(1 for s in sentences if '?' in s)
+        punctuation_types += sum(1 for s in sentences if '!' in s)
+        punctuation_types += sum(1 for s in sentences if '...' in s)
+        punctuation_diversity = punctuation_types / len(sentences)
+        
+        # Composite score (higher = less likely to be AI)
+        # Higher sentence length standard deviation, more diverse starters, more diverse punctuation = more likely human
+        variety_score = (std_dev / avg_length) * 0.5 + starter_diversity * 0.3 + punctuation_diversity * 0.2
+        
+        # Normalize (0-1 range)
+        variety_score = max(0, min(1, variety_score))
+        
+        details = {
+            "Average Sentence Length": round(avg_length, 2),
+            "Sentence Length Standard Deviation": round(std_dev, 2),
+            "Sentence Starter Diversity": round(starter_diversity, 2),
+            "Punctuation Diversity": round(punctuation_diversity, 2)
+        }
+        
+        return variety_score, details
     
-    # Analyze sentence length and complexity
-    sentence_lengths = [len(s.split()) for s in sentences]
-    avg_length = sum(sentence_lengths) / len(sentence_lengths)
-    std_dev = np.std(sentence_lengths)
-    
-    # Sentence starter diversity
-    sentence_starters = {}
-    for s in sentences:
-        words = s.split()
-        if words:
-            starter = words[0].lower()
-            sentence_starters[starter] = sentence_starters.get(starter, 0) + 1
-    
-    starter_diversity = len(sentence_starters) / len(sentences)
-    
-    # Punctuation diversity
-    punctuation_types = sum(1 for s in sentences if '?' in s)
-    punctuation_types += sum(1 for s in sentences if '!' in s)
-    punctuation_types += sum(1 for s in sentences if '...' in s)
-    punctuation_diversity = punctuation_types / len(sentences)
-    
-    # Composite score (higher = less likely to be AI)
-    # Higher sentence length standard deviation, more diverse starters, more diverse punctuation = more likely human
-    variety_score = (std_dev / avg_length) * 0.5 + starter_diversity * 0.3 + punctuation_diversity * 0.2
-    
-    # Normalize (0-1 range)
-    variety_score = max(0, min(1, variety_score))
-    
-    details = {
-        "Average Sentence Length": round(avg_length, 2),
-        "Sentence Length Standard Deviation": round(std_dev, 2),
-        "Sentence Starter Diversity": round(starter_diversity, 2),
-        "Punctuation Diversity": round(punctuation_diversity, 2)
-    }
-    
-    return variety_score, details
+    except Exception as e:
+        print(f"Error in analyze_sentence_variety: {e}")
+        # 오류 발생 시 기본값 반환
+        return 0.5, {"Error": f"Analysis failed: {str(e)}"}
 
 # Lexical diversity analysis
 def analyze_lexical_diversity(text):
@@ -388,7 +398,7 @@ def analyze_emotional_variance(text):
     return emotion_score, details
 
 
-# Run complete analysis with enhanced AI mimicry detection
+# 단순화된 분석 함수 (임시 해결책)
 def analyze_text(text):
     if not text.strip():
         return {
@@ -398,99 +408,39 @@ def analyze_text(text):
             "feature_scores": {}
         }
     
-    # Standard analysis
+    # 기본 분석
     sentence_score, sentence_details = analyze_sentence_variety(text)
     lexical_score, lexical_details = analyze_lexical_diversity(text)
     personal_score, personal_details = analyze_personal_references(text)
     repetition_score, repetition_details = analyze_repetition_patterns(text)
     emotion_score, emotion_details = analyze_emotional_variance(text)
     
-    # NEW: AI mimicry detection
-    mimicry_score, mimicry_details, mimicry_signals = detect_ai_mimicry(text)
-    
-    # Adjust scores based on mimicry detection
-    # A high mimicry score increases AI probability even if other human indicators are strong
-    mimicry_factor = mimicry_score * 2.0  # Double the impact of mimicry detection
-    
-    # Check for strong human indicators, but consider mimicry signals
-    has_emojis = bool(re.search(r'(:\)|:\(|;\)|:D|:P|:O|<3|:3|XD|T_T|>_<)', text)) or any(ord(c) > 8000 for c in text)
-    has_texting_style = bool(re.search(r'(ㅋㅋ|ㅎㅎ|ㅠㅠ|ㅜㅜ|!!|\?{2,}|\.{3,}|~+|lol|omg|wtf)', text))
-    has_informal_speech = bool(re.search(r'\b(그냥|진짜|완전|넘|너무|좀|약간|뭔가|gonna|wanna|gotta|dunno|y\'know)\b', text.lower()))
-    
-    # Apply weights with adjustments for better detection
+    # 가중치 적용
     weighted_sentence = sentence_score * sentence_variety_weight
     weighted_lexical = lexical_score * lexical_diversity_weight
-    weighted_personal = personal_score * personal_references_weight * 1.5  # Reduce from 2.0 to be less susceptible to mimicry
+    weighted_personal = personal_score * personal_references_weight
     weighted_repetition = repetition_score * repetition_weight
-    weighted_emotion = emotion_score * emotional_variance_weight * 1.2  # Reduce from 1.5
+    weighted_emotion = emotion_score * emotional_variance_weight
     
     total_weight = (sentence_variety_weight + lexical_diversity_weight + 
-                   personal_references_weight * 1.5 + repetition_weight + 
-                   emotional_variance_weight * 1.2)
+                   personal_references_weight + repetition_weight + 
+                   emotional_variance_weight)
     
-    # Calculate human writing probability with strong bias for human indicators
+    # 인간이 작성했을 확률 계산
     human_score = (weighted_sentence + weighted_lexical + weighted_personal + 
                   weighted_repetition + weighted_emotion) / total_weight
     
-    # Apply bonus for human indicators - but reduced if high mimicry score
-    mimicry_reduction = mimicry_score * 0.7  # Reduces the effect of human indicators
-    
-    if has_emojis:
-        human_score += 0.12 * (1 - mimicry_reduction)  # Reduced from 0.15
-    if has_texting_style:
-        human_score += 0.12 * (1 - mimicry_reduction)  # Reduced from 0.15
-    if has_informal_speech:
-        human_score += 0.08 * (1 - mimicry_reduction)  # Reduced from 0.10
-    
-    # Apply mimicry penalty - this directly reduces human score based on mimicry signals
-    human_score = max(0, human_score - mimicry_factor)
-    
-    # Cap at 1.0
-    human_score = min(1.0, human_score)
-    
-    # AI writing probability
+    # AI가 작성했을 확률
     ai_probability = (1 - human_score) * 100
     human_probability = human_score * 100
-    
-    # Special case handling for obvious AI mimicry
-    if mimicry_score > 0.5:
-        ai_probability = max(ai_probability, 70)  # Minimum 70% AI probability for high mimicry
-        human_probability = 100 - ai_probability
-    
-    # Special case for formal, structured text that's likely AI
-    if personal_score < 0.2 and emotion_score < 0.3 and lexical_score > 0.7:
-        ai_probability = max(ai_probability, 75)  # Minimum 75% AI probability
-        human_probability = 100 - ai_probability
-    
-    # Detect overused casual expressions - a sign of AI trying too hard
-    casual_expr_pattern = r'(ㅋㅋ|ㅎㅎ|ㅠㅠ|ㅜㅜ)'
-    casual_expr_matches = re.findall(casual_expr_pattern, text)
-    casual_expr_count = len(casual_expr_matches)
-    casual_expr_varieties = len(set(casual_expr_matches))
-    
-    # If many casual expressions but few varieties, likely AI mimicry
-    if casual_expr_count > 5 and casual_expr_varieties < 3:
-        ai_probability = max(ai_probability, 65)
-        human_probability = 100 - ai_probability
-    
-    # Detect perfectly balanced story structure - often a sign of AI
-    day_markers = ['첫날', '둘째 날', '셋째 날', '마지막 날']
-    found_markers = [marker for marker in day_markers if marker in text]
-    if len(found_markers) >= 3:  # Finding 3+ day markers in perfect sequence is suspicious
-        ai_probability = max(ai_probability, 60)
-        human_probability = 100 - ai_probability
     
     feature_scores = {
         "Sentence Variety": round(sentence_score * 100, 1),
         "Lexical Diversity": round(lexical_score * 100, 1),
         "Personal Expression": round(personal_score * 100, 1),
         "Repetition Patterns": round(repetition_score * 100, 1),
-        "Emotional Expression Diversity": round(emotion_score * 100, 1),
-        "AI Mimicry Score": round(mimicry_score * 100, 1)  # New score
+        "Emotional Expression Diversity": round(emotion_score * 100, 1)
     }
-    
-    # Add mimicry signals to details
-    mimicry_flags = {k: "Yes" if v else "No" for k, v in mimicry_signals.items()}
     
     return {
         "ai_probability": round(ai_probability, 1),
@@ -500,13 +450,10 @@ def analyze_text(text):
             "Lexical Diversity": lexical_details,
             "Personal Expression": personal_details,
             "Repetition Patterns": repetition_details,
-            "Emotional Expression Diversity": emotion_details,
-            "AI Mimicry Detection": mimicry_details,
-            "Mimicry Warning Flags": mimicry_flags
+            "Emotional Expression Diversity": emotion_details
         },
         "feature_scores": feature_scores
     }
-
 
 # Enhanced pattern analysis function - detects AI attempting to mimic human writing
 def detect_ai_mimicry(text):
