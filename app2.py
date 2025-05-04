@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import re
 import nltk
-from nltk.tokenize import word_tokenize
+# sent_tokenize를 임포트하지 않고 직접 정의
 import PyPDF2
 import docx
 import io
@@ -11,8 +11,8 @@ import os
 from bs4 import BeautifulSoup
 import matplotlib.pyplot as plt
 
-# 간단한 문장 분리 함수 정의
-def simple_sent_tokenize(text):
+# 간단한 문장 분리 함수 직접 구현
+def sent_tokenize(text):
     if not text:
         return []
     # 마침표, 물음표, 느낌표로 문장 분리
@@ -20,8 +20,14 @@ def simple_sent_tokenize(text):
     # 빈 문장 제거
     return [s for s in sentences if s.strip()]
 
-# NLTK의 sent_tokenize 대신 사용
-nltk.tokenize.sent_tokenize = simple_sent_tokenize
+# word_tokenize 함수도 간단히 대체
+def word_tokenize(text):
+    if not text:
+        return []
+    # 공백으로 단어 분리
+    return re.findall(r'\b\w+\b', text)
+
+
 
 st.set_page_config(
     page_title="AI Text Detector",
